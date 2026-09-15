@@ -471,7 +471,7 @@ class _AddBookPageState extends State<AddBookPage> {
           _field(shelf, 'Shelf', Icons.view_list),
           
           DropdownButtonFormField<String>(
-            initialValue: availability,
+value: availability,
             decoration: const InputDecoration(
               labelText: 'Availability',
               border: OutlineInputBorder(),
