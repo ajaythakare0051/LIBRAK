@@ -21,8 +21,7 @@ jobs:
           channel: stable
 
       - name: Create Flutter Android Project
-        run: flutter create --no-pub --platforms=android .
-
+        run: flutter create --no-pub --platforms=android --project-name=librak .
       - name: Get Dependencies
         run: flutter pub get
 
