@@ -22,9 +22,19 @@ jobs:
 
       - name: Create Flutter Android Project
         run: flutter create --no-pub --platforms=android --project-name=librak .
+
       - name: Add Internet Permission
+
         run: |
-          sed -i '/<manifest/a\    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+          if "android.permission.INTERNET" not in s:
+              s = s.replace(">", ">\n    <uses-permission android:name=\"android.permission.INTERNET\"/>", 1)
+          p.write_text(s)
+          PY
+      - name: Get Dependencies
         run: flutter pub get
 
       - name: Build APK
@@ -33,5 +43,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: LIBRAK-Commercial-APK
+          name: LIBRAK-Release-APK
           path: build/app/outputs/flutter-apk/app-release.apk
