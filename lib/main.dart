@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   runApp(const LibrakApp());
@@ -21,7 +23,7 @@ class LibrakApp extends StatelessWidget {
   }
 }
 
-// ---------------- LOGIN ----------------
+// ================= LOGIN =================
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
@@ -92,11 +94,6 @@ class LoginPage extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              const Text(
-                'Commercial Library Management Platform',
-                style: TextStyle(fontSize: 12),
-              ),
             ],
           ),
         ),
@@ -105,7 +102,7 @@ class LoginPage extends StatelessWidget {
   }
 }
 
-// ---------------- HOME ----------------
+// ================= HOME =================
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -115,12 +112,6 @@ class HomePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('LIBRAK'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person_outline),
-            onPressed: () {},
-          ),
-        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(20),
@@ -139,7 +130,6 @@ class HomePage extends StatelessWidget {
               'Manage books, shelves and circulation.',
             ),
             const SizedBox(height: 28),
-
             Row(
               children: [
                 Expanded(
@@ -159,9 +149,7 @@ class HomePage extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(height: 12),
-
             Row(
               children: [
                 Expanded(
@@ -181,9 +169,7 @@ class HomePage extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(height: 30),
-
             SizedBox(
               width: double.infinity,
               height: 54,
@@ -242,7 +228,7 @@ class _DashboardCard extends StatelessWidget {
   }
 }
 
-// ---------------- BOOK MODEL ----------------
+// ================= BOOK MODEL =================
 
 class Book {
   String title;
@@ -258,6 +244,8 @@ class Book {
   String shelf;
   String availability;
   String description;
+  String keywords;
+  String coverUrl;
 
   Book({
     required this.title,
@@ -273,10 +261,12 @@ class Book {
     required this.shelf,
     required this.availability,
     required this.description,
+    required this.keywords,
+    required this.coverUrl,
   });
 }
 
-// ---------------- CATALOG ----------------
+// ================= CATALOG =================
 
 class CatalogPage extends StatefulWidget {
   const CatalogPage({super.key});
@@ -287,15 +277,17 @@ class CatalogPage extends StatefulWidget {
 
 class _CatalogPageState extends State<CatalogPage> {
   final List<Book> books = [];
-
   String search = '';
 
   @override
   Widget build(BuildContext context) {
     final filteredBooks = books.where((book) {
-      return book.title.toLowerCase().contains(search.toLowerCase()) ||
-          book.author.toLowerCase().contains(search.toLowerCase()) ||
-          book.isbn.toLowerCase().contains(search.toLowerCase());
+      final q = search.toLowerCase();
+
+      return book.title.toLowerCase().contains(q) ||
+          book.author.toLowerCase().contains(q) ||
+          book.isbn.toLowerCase().contains(q) ||
+          book.keywords.toLowerCase().contains(q);
     }).toList();
 
     return Scaffold(
@@ -313,7 +305,7 @@ class _CatalogPageState extends State<CatalogPage> {
                 });
               },
               decoration: InputDecoration(
-                hintText: 'Search books, author or ISBN',
+                hintText: 'Search books, author, ISBN or keywords',
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -321,25 +313,12 @@ class _CatalogPageState extends State<CatalogPage> {
               ),
             ),
           ),
-
           Expanded(
             child: filteredBooks.isEmpty
                 ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.menu_book_outlined,
-                          size: 70,
-                        ),
-                        SizedBox(height: 12),
-                        Text(
-                          'No books added yet',
-                          style: TextStyle(fontSize: 18),
-                        ),
-                        SizedBox(height: 6),
-                        Text('Tap + to add a book'),
-                      ],
+                    child: Text(
+                      'No books added yet',
+                      style: TextStyle(fontSize: 18),
                     ),
                   )
                 : ListView.builder(
@@ -353,9 +332,22 @@ class _CatalogPageState extends State<CatalogPage> {
                           vertical: 6,
                         ),
                         child: ListTile(
-                          leading: const CircleAvatar(
-                            child: Icon(Icons.menu_book),
-                          ),
+                          leading: book.coverUrl.isEmpty
+                              ? const CircleAvatar(
+                                  child: Icon(Icons.menu_book),
+                                )
+                              : Image.network(
+                                  book.coverUrl,
+                                  width: 45,
+                                  height: 60,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) {
+                                    return const Icon(
+                                      Icons.menu_book,
+                                      size: 40,
+                                    );
+                                  },
+                                ),
                           title: Text(book.title),
                           subtitle: Text(
                             '${book.author}\nRack ${book.rack} • Shelf ${book.shelf}',
@@ -403,7 +395,7 @@ class _CatalogPageState extends State<CatalogPage> {
   }
 }
 
-// ---------------- ADD BOOK ----------------
+// ================= ADD BOOK =================
 
 class AddBookPage extends StatefulWidget {
   const AddBookPage({super.key});
@@ -425,8 +417,11 @@ class _AddBookPageState extends State<AddBookPage> {
   final rack = TextEditingController();
   final shelf = TextEditingController();
   final description = TextEditingController();
+  final keywords = TextEditingController();
+  final coverUrl = TextEditingController();
 
   String availability = 'Available';
+  bool loading = false;
 
   @override
   void dispose() {
@@ -442,7 +437,107 @@ class _AddBookPageState extends State<AddBookPage> {
     rack.dispose();
     shelf.dispose();
     description.dispose();
+    keywords.dispose();
+    coverUrl.dispose();
     super.dispose();
+  }
+
+  // -------- ISBN AUTO FILL --------
+
+  Future<void> autoFillISBN() async {
+    final code = isbn.text.trim();
+
+    if (code.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter ISBN first'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      loading = true;
+    });
+
+    try {
+      final url = Uri.parse(
+        'https://www.googleapis.com/books/v1/volumes?q=isbn:$code',
+      );
+
+      final response = await http.get(url);
+
+      if (response.statusCode != 200) {
+        throw Exception();
+      }
+
+      final data = jsonDecode(response.body);
+      final items = data['items'];
+
+      if (items == null || items.isEmpty) {
+        throw Exception('Book not found');
+      }
+
+      final info = items[0]['volumeInfo'];
+
+      setState(() {
+        title.text = info['title'] ?? '';
+
+        final authors = info['authors'];
+        if (authors is List) {
+          author.text = authors.join(', ');
+        }
+
+        publisher.text = info['publisher'] ?? '';
+        publicationDate.text = info['publishedDate'] ?? '';
+        language.text = info['language'] ?? '';
+        pages.text = info['pageCount']?.toString() ?? '';
+        description.text = info['description'] ?? '';
+
+        final categories = info['categories'];
+        if (categories is List) {
+          genre.text = categories.join(', ');
+          keywords.text = categories.join(', ');
+        }
+
+        final imageLinks = info['imageLinks'];
+        if (imageLinks != null) {
+          coverUrl.text =
+              imageLinks['thumbnail'] ??
+              imageLinks['smallThumbnail'] ??
+              '';
+        }
+
+        final identifiers = info['industryIdentifiers'];
+
+        if (identifiers is List) {
+          for (final item in identifiers) {
+            if (item['type'] == 'ISBN_13') {
+              isbn.text = item['identifier'];
+              break;
+            }
+          }
+        }
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Book details filled automatically'),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Book not found. Please enter details manually.',
+          ),
+        ),
+      );
+    }
+
+    setState(() {
+      loading = false;
+    });
   }
 
   @override
@@ -454,24 +549,84 @@ class _AddBookPageState extends State<AddBookPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          _field(
+            isbn,
+            'ISBN',
+            Icons.qr_code,
+          ),
+
+          const SizedBox(height: 4),
+
+          SizedBox(
+            height: 48,
+            child: FilledButton.icon(
+              onPressed: loading ? null : autoFillISBN,
+              icon: loading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Icon(Icons.auto_awesome),
+              label: Text(
+                loading
+                    ? 'Searching Book...'
+                    : 'Auto Fill by ISBN',
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 18),
+
           _field(title, 'Title', Icons.title),
           _field(author, 'Author', Icons.person_outline),
-          _field(isbn, 'ISBN', Icons.qr_code),
           _field(publisher, 'Publisher', Icons.business),
           _field(genre, 'Genre', Icons.category_outlined),
-          _field(language, 'Language', Icons.language),
+          _field(
+            language,
+            'Language',
+            Icons.language,
+          ),
           _field(
             publicationDate,
             'Publication Date',
             Icons.calendar_today,
           ),
-          _field(edition, 'Edition', Icons.layers_outlined),
-          _field(pages, 'Pages', Icons.auto_stories),
-          _field(rack, 'Rack', Icons.shelves),
-          _field(shelf, 'Shelf', Icons.view_list),
-          
+          _field(
+            edition,
+            'Edition',
+            Icons.layers_outlined,
+          ),
+          _field(
+            pages,
+            'Pages',
+            Icons.auto_stories,
+          ),
+
+          _field(
+            keywords,
+            'Keywords',
+            Icons.key,
+          ),
+
+          _field(
+            rack,
+            'Rack',
+            Icons.shelves,
+          ),
+
+          _field(
+            shelf,
+            'Shelf',
+            Icons.view_list,
+          ),
+
+          const SizedBox(height: 4),
+
           DropdownButtonFormField<String>(
-value: availability,
+            value: availability,
             decoration: const InputDecoration(
               labelText: 'Availability',
               border: OutlineInputBorder(),
@@ -488,7 +643,7 @@ value: availability,
               DropdownMenuItem(
                 value: 'Reserved',
                 child: Text('Reserved'),
-            ),
+              ),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -502,8 +657,19 @@ value: availability,
           const SizedBox(height: 16),
 
           TextField(
+            controller: coverUrl,
+            decoration: const InputDecoration(
+              labelText: 'Cover Image URL',
+              prefixIcon: Icon(Icons.image),
+              border: OutlineInputBorder(),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          TextField(
             controller: description,
-            maxLines: 4,
+            maxLines: 5,
             decoration: const InputDecoration(
               labelText: 'Description',
               alignLabelWithHint: true,
@@ -514,18 +680,15 @@ value: availability,
           const SizedBox(height: 24),
 
           SizedBox(
-            height: 52,
+            height: 54,
             child: FilledButton.icon(
               icon: const Icon(Icons.save),
               label: const Text('Save Book'),
               onPressed: () {
-                if (title.text.trim().isEmpty ||
-                    author.text.trim().isEmpty) {
+                if (title.text.trim().isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text(
-                        'Please enter Title and Author',
-                      ),
+                      content: Text('Please enter Title'),
                     ),
                   );
                   return;
@@ -548,6 +711,8 @@ value: availability,
                     shelf: shelf.text.trim(),
                     availability: availability,
                     description: description.text.trim(),
+                    keywords: keywords.text.trim(),
+                    coverUrl: coverUrl.text.trim(),
                   ),
                 );
               },
@@ -577,7 +742,7 @@ value: availability,
   }
 }
 
-// ---------------- BOOK DETAILS ----------------
+// ================= BOOK DETAILS =================
 
 class BookDetailsPage extends StatelessWidget {
   final Book book;
@@ -596,11 +761,28 @@ class BookDetailsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Icon(
-            Icons.menu_book_rounded,
-            size: 90,
-          ),
-          const SizedBox(height: 16),
+          if (book.coverUrl.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                book.coverUrl,
+                height: 220,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) {
+                  return const Icon(
+                    Icons.menu_book_rounded,
+                    size: 100,
+                  );
+                },
+              ),
+            )
+          else
+            const Icon(
+              Icons.menu_book_rounded,
+              size: 100,
+            ),
+
+          const SizedBox(height: 20),
 
           Text(
             book.title,
@@ -614,7 +796,9 @@ class BookDetailsPage extends StatelessWidget {
           const SizedBox(height: 8),
 
           Text(
-            book.author,
+            book.author.isEmpty
+                ? 'Author not provided'
+                : book.author,
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 17),
           ),
@@ -625,19 +809,26 @@ class BookDetailsPage extends StatelessWidget {
           _info('Publisher', book.publisher),
           _info('Genre', book.genre),
           _info('Language', book.language),
-          _info('Publication Date', book.publicationDate),
+          _info(
+            'Publication Date',
+            book.publicationDate,
+          ),
           _info('Edition', book.edition),
           _info('Pages', book.pages),
+          _info('Keywords', book.keywords),
           _info('Rack', book.rack),
           _info('Shelf', book.shelf),
-          _info('Availability', book.availability),
+          _info(
+            'Availability',
+            book.availability,
+          ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
 
           const Text(
             'Description',
             style: TextStyle(
-              fontSize: 18,
+              fontSize: 19,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -648,6 +839,7 @@ class BookDetailsPage extends StatelessWidget {
             book.description.isEmpty
                 ? 'No description available.'
                 : book.description,
+            style: const TextStyle(fontSize: 16),
           ),
         ],
       ),
