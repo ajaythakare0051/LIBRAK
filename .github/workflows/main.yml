@@ -22,7 +22,9 @@ jobs:
 
       - name: Create Flutter Android Project
         run: flutter create --no-pub --platforms=android --project-name=librak .
-      - name: Get Dependencies
+      - name: Add Internet Permission
+        run: |
+          sed -i '/<manifest/a\    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
         run: flutter pub get
 
       - name: Build APK
