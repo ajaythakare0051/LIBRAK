@@ -444,101 +444,217 @@ class _AddBookPageState extends State<AddBookPage> {
 
   // -------- ISBN AUTO FILL --------
 
-  Future<void> autoFillISBN() async {
-    final code = isbn.text.trim();
+Future<void> autoFillISBN() async {
+  final code = isbn.text
+      .trim()
+      .replaceAll(RegExp(r'[^0-9Xx]'), '');
 
-    if (code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter ISBN first'),
-        ),
-      );
-      return;
-    }
-
-    setState(() {
-      loading = true;
-    });
-
-    try {
-      final url = Uri.parse(
-        'https://www.googleapis.com/books/v1/volumes?q=isbn:$code',
-      );
-
-      final response = await http.get(url);
-
-      if (response.statusCode != 200) {
-        throw Exception();
-      }
-
-      final data = jsonDecode(response.body);
-      final items = data['items'];
-
-      if (items == null || items.isEmpty) {
-        throw Exception('Book not found');
-      }
-
-      final info = items[0]['volumeInfo'];
-
-      setState(() {
-        title.text = info['title'] ?? '';
-
-        final authors = info['authors'];
-        if (authors is List) {
-          author.text = authors.join(', ');
-        }
-
-        publisher.text = info['publisher'] ?? '';
-        publicationDate.text = info['publishedDate'] ?? '';
-        language.text = info['language'] ?? '';
-        pages.text = info['pageCount']?.toString() ?? '';
-        description.text = info['description'] ?? '';
-
-        final categories = info['categories'];
-        if (categories is List) {
-          genre.text = categories.join(', ');
-          keywords.text = categories.join(', ');
-        }
-
-        final imageLinks = info['imageLinks'];
-        if (imageLinks != null) {
-          coverUrl.text =
-              imageLinks['thumbnail'] ??
-              imageLinks['smallThumbnail'] ??
-              '';
-        }
-
-        final identifiers = info['industryIdentifiers'];
-
-        if (identifiers is List) {
-          for (final item in identifiers) {
-            if (item['type'] == 'ISBN_13') {
-              isbn.text = item['identifier'];
-              break;
-            }
-          }
-        }
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Book details filled automatically'),
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Book not found. Please enter details manually.',
-          ),
-        ),
-      );
-    }
-
-    setState(() {
-      loading = false;
-    });
+  if (code.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Please enter ISBN first.'),
+      ),
+    );
+    return;
   }
+
+  setState(() {
+    loading = true;
+  });
+
+  try {
+    Map<String, dynamic>? info;
+
+    // 1. Google Books API
+    try {
+      final googleUrl = Uri.https(
+        'www.googleapis.com',
+        '/books/v1/volumes',
+        {
+          'q': 'isbn:$code',
+          'maxResults': '1',
+        },
+      );
+
+      final response = await http
+          .get(googleUrl)
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        if (data['items'] is List &&
+            (data['items'] as List).isNotEmpty) {
+          info = Map<String, dynamic>.from(
+            data['items'][0]['volumeInfo'],
+          );
+        }
+      }
+    } catch (_) {
+      // Try Open Library below
+    }
+
+    // 2. Open Library fallback
+    if (info == null) {
+      final openUrl = Uri.https(
+        'openlibrary.org',
+        '/api/books',
+        {
+          'bibkeys': 'ISBN:$code',
+          'format': 'json',
+          'jscmd': 'data',
+        },
+      );
+
+      final response = await http
+          .get(openUrl)
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        final key = 'ISBN:$code';
+
+        if (data[key] != null) {
+          final book = Map<String, dynamic>.from(data[key]);
+
+          String authorsText = '';
+
+          if (book['authors'] is List) {
+            authorsText = (book['authors'] as List)
+                .map((a) => a['name'] ?? '')
+                .where((x) => x.toString().isNotEmpty)
+                .join(', ');
+          }
+
+          String publishersText = '';
+
+          if (book['publishers'] is List) {
+            publishersText = (book['publishers'] as List)
+                .map((p) => p['name'] ?? '')
+                .where((x) => x.toString().isNotEmpty)
+                .join(', ');
+          }
+
+          String subjectsText = '';
+
+          if (book['subjects'] is List) {
+            subjectsText = (book['subjects'] as List)
+                .map((s) => s['name'] ?? '')
+                .where((x) => x.toString().isNotEmpty)
+                .take(8)
+                .join(', ');
+          }
+
+          String cover = '';
+
+          if (book['cover'] is Map) {
+            cover =
+                book['cover']['medium']?.toString() ??
+                book['cover']['large']?.toString() ??
+                '';
+          }
+
+          info = {
+            'title': book['title'] ?? '',
+            'authors': authorsText.isEmpty
+                ? []
+                : [authorsText],
+            'publisher': publishersText,
+            'publishers': publishersText,
+            'publishedDate':
+                book['publish_date']?.toString() ?? '',
+            'subjects': subjectsText,
+            'description':
+                book['notes']?.toString() ?? '',
+            'number_of_pages':
+                book['number_of_pages']?.toString() ?? '',
+            'coverUrl': cover,
+          };
+        }
+      }
+    }
+
+    // No result from either API
+    if (info == null) {
+      throw Exception('Book not found');
+    }
+
+    setState(() {
+      title.text = info!['title']?.toString() ?? '';
+
+      final authors = info['authors'];
+
+      if (authors is List) {
+        author.text = authors.join(', ');
+      } else {
+        author.text = '';
+      }
+
+      publisher.text =
+          info['publisher']?.toString() ??
+          info['publishers']?.toString() ??
+          '';
+
+      publicationDate.text =
+          info['publishedDate']?.toString() ?? '';
+
+      language.text =
+          info['language']?.toString() ?? '';
+
+      pages.text =
+          info['pageCount']?.toString() ??
+          info['number_of_pages']?.toString() ??
+          '';
+
+      description.text =
+          info['description']?.toString() ?? '';
+
+      final categories =
+          info['categories'] ??
+          info['subjects'];
+
+      if (categories is List) {
+        genre.text = categories.join(', ');
+        keywords.text = categories.join(', ');
+      } else if (categories is String) {
+        genre.text = categories;
+        keywords.text = categories;
+      }
+
+      final cover =
+          info['coverUrl']?.toString() ?? '';
+
+      if (cover.isNotEmpty) {
+        coverUrl.text = cover;
+      }
+
+      isbn.text = code;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Book details filled automatically!',
+        ),
+      ),
+    );
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'ISBN lookup failed. Please try again.',
+        ),
+      ),
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        loading = false;
+      });
+    }
+  }
+}
 
   @override
   Widget build(BuildContext context) {
