@@ -671,7 +671,31 @@ Future<void> autoFillISBN() async {
             'ISBN',
             Icons.qr_code,
           ),
+const SizedBox(height: 8),
 
+SizedBox(
+  height: 48,
+  child: OutlinedButton.icon(
+    onPressed: () async {
+      final result = await Navigator.push<String>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const ISBNScannerPage(),
+        ),
+      );
+
+      if (result != null && result.isNotEmpty) {
+        setState(() {
+          isbn.text = result;
+        });
+
+        await autoFillISBN();
+      }
+    },
+    icon: const Icon(Icons.camera_alt),
+    label: const Text('Scan ISBN with Camera'),
+  ),
+),
           const SizedBox(height: 4),
 
           SizedBox(
