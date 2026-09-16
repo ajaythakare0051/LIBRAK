@@ -1,3 +1,4 @@
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -969,6 +970,112 @@ class BookDetailsPage extends StatelessWidget {
         subtitle: Text(
           value.isEmpty ? 'Not provided' : value,
         ),
+      ),
+    );
+  }
+}
+
+// ================= ISBN CAMERA SCANNER =================
+
+class ISBNScannerPage extends StatefulWidget {
+  const ISBNScannerPage({super.key});
+
+  @override
+  State<ISBNScannerPage> createState() => _ISBNScannerPageState();
+}
+
+class _ISBNScannerPageState extends State<ISBNScannerPage> {
+  final MobileScannerController controller =
+      MobileScannerController();
+
+  bool alreadyScanned = false;
+
+  String cleanISBN(String value) {
+    return value.replaceAll(RegExp(r'[^0-9Xx]'), '');
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Scan ISBN'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flash_on),
+            onPressed: () {
+              controller.toggleTorch();
+            },
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          MobileScanner(
+            controller: controller,
+            onDetect: (capture) {
+              if (alreadyScanned) return;
+
+              for (final barcode in capture.barcodes) {
+                final value = barcode.rawValue;
+
+                if (value == null) continue;
+
+                final isbn = cleanISBN(value);
+
+                final validISBN13 =
+                    isbn.length == 13 &&
+                    (isbn.startsWith('978') ||
+                        isbn.startsWith('979'));
+
+                final validISBN10 = isbn.length == 10;
+
+                if (validISBN13 || validISBN10) {
+                  alreadyScanned = true;
+                  controller.stop();
+
+                  Navigator.pop(context, isbn);
+                  return;
+                }
+              }
+            },
+          ),
+
+          Center(
+            child: Container(
+              width: 320,
+              height: 160,
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: Colors.white,
+                  width: 3,
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 100,
+            child: Center(
+              child: Text(
+                'Place ISBN barcode inside the box',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
