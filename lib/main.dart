@@ -466,9 +466,9 @@ Future<void> autoFillISBN() async {
   try {
     Map<String, dynamic>? info;
 
-    // 1. Google Books API
+    // ================= GOOGLE BOOKS =================
     try {
-      final googleUrl = Uri.https(
+      final url = Uri.https(
         'www.googleapis.com',
         '/books/v1/volumes',
         {
@@ -478,7 +478,7 @@ Future<void> autoFillISBN() async {
       );
 
       final response = await http
-          .get(googleUrl)
+          .get(url)
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -491,98 +491,144 @@ Future<void> autoFillISBN() async {
           );
         }
       }
-    } catch (_) {
-      // Try Open Library below
+    } catch (_) {}
+
+    // ================= OPEN LIBRARY SEARCH =================
+    if (info == null) {
+      try {
+        final url = Uri.https(
+          'openlibrary.org',
+          '/search.json',
+          {
+            'isbn': code,
+            'limit': '1',
+          },
+        );
+
+        final response = await http
+            .get(url)
+            .timeout(const Duration(seconds: 10));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+
+          if (data['docs'] is List &&
+              (data['docs'] as List).isNotEmpty) {
+            final doc = data['docs'][0];
+
+            String authors = '';
+
+            if (doc['author_name'] is List) {
+              authors =
+                  (doc['author_name'] as List).join(', ');
+            }
+
+            String publishers = '';
+
+            if (doc['publisher'] is List) {
+              publishers =
+                  (doc['publisher'] as List)
+                      .take(3)
+                      .join(', ');
+            }
+
+            String subjects = '';
+
+            if (doc['subject'] is List) {
+              subjects =
+                  (doc['subject'] as List)
+                      .take(8)
+                      .join(', ');
+            }
+
+            info = {
+              'title': doc['title'] ?? '',
+              'authors': authors.isEmpty
+                  ? []
+                  : [authors],
+              'publisher': publishers,
+              'publishedDate':
+                  doc['first_publish_year']
+                          ?.toString() ??
+                      '',
+              'subjects': subjects,
+              'number_of_pages':
+                  doc['number_of_pages_median']
+                          ?.toString() ??
+                      '',
+              'language': '',
+              'description': '',
+              'coverUrl': doc['cover_i'] != null
+                  ? 'https://covers.openlibrary.org/b/id/${doc['cover_i']}-L.jpg'
+                  : '',
+            };
+          }
+        }
+      } catch (_) {}
     }
 
-    // 2. Open Library fallback
+    // ================= OPEN LIBRARY ISBN =================
     if (info == null) {
-      final openUrl = Uri.https(
-        'openlibrary.org',
-        '/api/books',
-        {
-          'bibkeys': 'ISBN:$code',
-          'format': 'json',
-          'jscmd': 'data',
-        },
-      );
+      try {
+        final url = Uri.https(
+          'openlibrary.org',
+          '/isbn/$code.json',
+        );
 
-      final response = await http
-          .get(openUrl)
-          .timeout(const Duration(seconds: 10));
+        final response = await http
+            .get(url)
+            .timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
 
-        final key = 'ISBN:$code';
+          String publishers = '';
 
-        if (data[key] != null) {
-          final book = Map<String, dynamic>.from(data[key]);
-
-          String authorsText = '';
-
-          if (book['authors'] is List) {
-            authorsText = (book['authors'] as List)
-                .map((a) => a['name'] ?? '')
-                .where((x) => x.toString().isNotEmpty)
-                .join(', ');
+          if (data['publishers'] is List) {
+            publishers =
+                (data['publishers'] as List)
+                    .map((p) => p.toString())
+                    .join(', ');
           }
 
-          String publishersText = '';
+          String subjects = '';
 
-          if (book['publishers'] is List) {
-            publishersText = (book['publishers'] as List)
-                .map((p) => p['name'] ?? '')
-                .where((x) => x.toString().isNotEmpty)
-                .join(', ');
-          }
-
-          String subjectsText = '';
-
-          if (book['subjects'] is List) {
-            subjectsText = (book['subjects'] as List)
-                .map((s) => s['name'] ?? '')
-                .where((x) => x.toString().isNotEmpty)
-                .take(8)
-                .join(', ');
-          }
-
-          String cover = '';
-
-          if (book['cover'] is Map) {
-            cover =
-                book['cover']['medium']?.toString() ??
-                book['cover']['large']?.toString() ??
-                '';
+          if (data['subjects'] is List) {
+            subjects =
+                (data['subjects'] as List).map((s) {
+              if (s is Map) {
+                return s['name']?.toString() ?? '';
+              }
+              return s.toString();
+            }).take(8).join(', ');
           }
 
           info = {
-            'title': book['title'] ?? '',
-            'authors': authorsText.isEmpty
-                ? []
-                : [authorsText],
-            'publisher': publishersText,
-            'publishers': publishersText,
+            'title': data['title'] ?? '',
+            'authors': [],
+            'publisher': publishers,
             'publishedDate':
-                book['publish_date']?.toString() ?? '',
-            'subjects': subjectsText,
-            'description':
-                book['notes']?.toString() ?? '',
+                data['publish_date']?.toString() ?? '',
+            'subjects': subjects,
             'number_of_pages':
-                book['number_of_pages']?.toString() ?? '',
-            'coverUrl': cover,
+                data['number_of_pages']?.toString() ?? '',
+            'language': '',
+            'description': '',
+            'coverUrl': '',
           };
         }
-      }
+      } catch (_) {}
     }
 
-    // No result from either API
+    // ================= NO BOOK FOUND =================
     if (info == null) {
       throw Exception('Book not found');
     }
 
+    // ================= FILL ALL DETAILS =================
     setState(() {
-      title.text = info!['title']?.toString() ?? '';
+      title.text =
+          info!['title']?.toString() ?? '';
 
       final authors = info['authors'];
 
@@ -593,9 +639,7 @@ Future<void> autoFillISBN() async {
       }
 
       publisher.text =
-          info['publisher']?.toString() ??
-          info['publishers']?.toString() ??
-          '';
+          info['publisher']?.toString() ?? '';
 
       publicationDate.text =
           info['publishedDate']?.toString() ?? '';
@@ -644,7 +688,7 @@ Future<void> autoFillISBN() async {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'ISBN lookup failed. Please try again.',
+          'Book details not found for ISBN $code',
         ),
       ),
     );
