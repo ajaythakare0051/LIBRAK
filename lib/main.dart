@@ -625,57 +625,62 @@ Future<void> autoFillISBN() async {
       throw Exception('Book not found');
     }
 
-    // ================= FILL ALL DETAILS =================
-    setState(() {
-      title.text =
-          info!['title']?.toString() ?? '';
+// ================= FILL ALL DETAILS =================
+setState(() {
+  title.text =
+      info!['title']?.toString() ?? '';
 
-      final authors = info['authors'];
+  final authors = info['authors'];
 
-      if (authors is List) {
-        author.text = authors.join(', ');
-      } else {
-        author.text = '';
-      }
+  if (authors is List) {
+    author.text = authors.join(', ');
+  } else {
+    author.text = '';
+  }
 
-      publisher.text =
-          info['publisher']?.toString() ?? '';
+  publisher.text =
+      info['publisher']?.toString() ??
+      info['publishers']?.toString() ??
+      '';
 
-      publicationDate.text =
-          info['publishedDate']?.toString() ?? '';
+  publicationDate.text =
+      info['publishedDate']?.toString() ??
+      '';
 
-      language.text =
-          info['language']?.toString() ?? '';
+  language.text =
+      info['language']?.toString() ??
+      '';
 
-      pages.text =
-          info['pageCount']?.toString() ??
-          info['number_of_pages']?.toString() ??
-          '';
+  pages.text =
+      info['pageCount']?.toString() ??
+      info['number_of_pages']?.toString() ??
+      '';
 
-      description.text =
-          info['description']?.toString() ?? '';
+  description.text =
+      info['description']?.toString() ??
+      '';
 
-      final categories =
-          info['categories'] ??
-          info['subjects'];
+  final categories =
+      info['categories'] ??
+      info['subjects'];
 
-      if (categories is List) {
-        genre.text = categories.join(', ');
-        keywords.text = categories.join(', ');
-      } else if (categories is String) {
-        genre.text = categories;
-        keywords.text = categories;
-      }
+  if (categories is List) {
+    genre.text = categories.join(', ');
+    keywords.text = categories.join(', ');
+  } else if (categories is String) {
+    genre.text = categories;
+    keywords.text = categories;
+  }
 
-      final cover =
-          info['coverUrl']?.toString() ?? '';
+  final cover =
+      info['coverUrl']?.toString() ?? '';
 
-      if (cover.isNotEmpty) {
-        coverUrl.text = cover;
-      }
+  if (cover.isNotEmpty) {
+    coverUrl.text = cover;
+  }
 
-      isbn.text = code;
-    });
+  isbn.text = code;
+});
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
