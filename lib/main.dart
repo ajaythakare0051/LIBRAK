@@ -444,7 +444,7 @@ class _AddBookPageState extends State<AddBookPage> {
   }
 
   // -------- ISBN AUTO FILL --------
-
+  
 Future<void> autoFillISBN() async {
   final code = isbn.text
       .trim()
@@ -459,26 +459,39 @@ Future<void> autoFillISBN() async {
     return;
   }
 
+  if (code.length != 10 && code.length != 13) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Please enter a valid ISBN-10 or ISBN-13.'),
+      ),
+    );
+    return;
+  }
+
   setState(() {
     loading = true;
   });
 
   try {
-    Map<String, dynamic>? info;
+    Map<String, dynamic> google = {};
+    Map<String, dynamic> open = {};
 
-    // ================= GOOGLE BOOKS =================
+    // =========================================================
+    // GOOGLE BOOKS
+    // =========================================================
+
     try {
-      final googleUrl = Uri.https(
+      final url = Uri.https(
         'www.googleapis.com',
         '/books/v1/volumes',
         {
           'q': 'isbn:$code',
-          'maxResults': '1',
+          'maxResults': '5',
         },
       );
 
       final response = await http
-          .get(googleUrl)
+          .get(url)
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -486,29 +499,33 @@ Future<void> autoFillISBN() async {
 
         if (data['items'] is List &&
             (data['items'] as List).isNotEmpty) {
-          final volumeInfo =
-              data['items'][0]['volumeInfo'];
+          final item = data['items'][0];
 
-          if (volumeInfo is Map) {
-            info = Map<String, dynamic>.from(volumeInfo);
+          if (item['volumeInfo'] is Map) {
+            google = Map<String, dynamic>.from(
+              item['volumeInfo'],
+            );
           }
         }
       }
     } catch (_) {}
 
-    // ================= OPEN LIBRARY SEARCH =================
+    // =========================================================
+    // OPEN LIBRARY SEARCH
+    // =========================================================
+
     try {
-      final openUrl = Uri.https(
+      final url = Uri.https(
         'openlibrary.org',
         '/search.json',
         {
           'isbn': code,
-          'limit': '1',
+          'limit': '5',
         },
       );
 
       final response = await http
-          .get(openUrl)
+          .get(url)
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -519,235 +536,318 @@ Future<void> autoFillISBN() async {
           final doc = data['docs'][0];
 
           if (doc is Map) {
-            String authors = '';
-
-            if (doc['author_name'] is List) {
-              authors =
-                  (doc['author_name'] as List)
-                      .join(', ');
-            }
-
-            String publishers = '';
-
-            if (doc['publisher'] is List) {
-              publishers =
-                  (doc['publisher'] as List)
-                      .take(3)
-                      .join(', ');
-            }
-
-            String subjects = '';
-
-            if (doc['subject'] is List) {
-              subjects =
-                  (doc['subject'] as List)
-                      .take(8)
-                      .join(', ');
-            }
-
-            String cover = '';
-
-            if (doc['cover_i'] != null) {
-              cover =
-                  'https://covers.openlibrary.org/b/id/${doc['cover_i']}-L.jpg';
-            }
-
-            final openInfo = <String, dynamic>{
-              'title':
-                  doc['title']?.toString() ?? '',
-              'authors':
-                  authors.isEmpty
-                      ? []
-                      : [authors],
-              'publisher': publishers,
-              'publishedDate':
-                  doc['first_publish_year']
-                          ?.toString() ??
-                      '',
-              'subjects': subjects,
-              'number_of_pages':
-                  doc['number_of_pages_median']
-                          ?.toString() ??
-                      '',
-              'language':
-                  doc['language'] is List &&
-                          (doc['language'] as List)
-                              .isNotEmpty
-                      ? (doc['language'] as List)
-                          .first
-                          .toString()
-                      : '',
-              'coverUrl': cover,
-            };
-
-            // Merge Open Library data
-            // with Google Books data.
-            info ??= {};
-
-            openInfo.forEach((key, value) {
-              final oldValue = info![key];
-
-              if (oldValue == null ||
-                  oldValue.toString().trim().isEmpty ||
-                  (oldValue is List &&
-                      oldValue.isEmpty)) {
-                info![key] = value;
-              }
-            });
+            open = Map<String, dynamic>.from(doc);
           }
         }
       }
     } catch (_) {}
 
-        // ================= OPEN LIBRARY ISBN FALLBACK =================
-    if (info == null ||
-        info!['title'] == null ||
-        info!['title'].toString().isEmpty) {
-      try {
-        final isbnUrl = Uri.https(
-          'openlibrary.org',
-          '/isbn/$code.json',
-        );
+    // =========================================================
+    // OPEN LIBRARY ISBN EDITION FALLBACK
+    // =========================================================
 
-        final response = await http
-            .get(isbnUrl)
-            .timeout(const Duration(seconds: 10));
+    Map<String, dynamic> edition = {};
 
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
+    try {
+      final url = Uri.https(
+        'openlibrary.org',
+        '/isbn/$code.json',
+      );
 
-          if (data is Map) {
-            info ??= {};
+      final response = await http
+          .get(url)
+          .timeout(const Duration(seconds: 10));
 
-            info!['title'] ??=
-                data['title']?.toString() ?? '';
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
 
-            if (info!['publisher'] == null ||
-                info!['publisher']
-                    .toString()
-                    .isEmpty) {
-              if (data['publishers'] is List) {
-                info!['publisher'] =
-                    (data['publishers'] as List)
-                        .map(
-                          (p) => p is Map
-                              ? p['name']
-                              : p,
-                        )
-                        .join(', ');
-              }
-            }
-
-            info!['publishedDate'] ??=
-                data['publish_date']
-                        ?.toString() ??
-                    '';
-
-            info!['number_of_pages'] ??=
-                data['number_of_pages']
-                        ?.toString() ??
-                    '';
-
-            if (data['subjects'] is List) {
-              info!['subjects'] =
-                  (data['subjects'] as List)
-                      .map(
-                        (s) => s is Map
-                            ? s['name']
-                            : s,
-                      )
-                      .take(8)
-                      .join(', ');
-            }
-
-            if (data['cover'] is Map) {
-              info!['coverUrl'] ??=
-                  data['cover']['medium']
-                          ?.toString() ??
-                      data['cover']['large']
-                          ?.toString() ??
-                      '';
-            }
-          }
+        if (data is Map) {
+          edition = Map<String, dynamic>.from(data);
         }
-      } catch (_) {}
+      }
+    } catch (_) {}
+
+    // =========================================================
+    // HELPER FUNCTIONS
+    // =========================================================
+
+    String cleanText(dynamic value) {
+      if (value == null) return '';
+
+      if (value is Map) {
+        if (value['value'] != null) {
+          return value['value'].toString().trim();
+        }
+
+        if (value['name'] != null) {
+          return value['name'].toString().trim();
+        }
+      }
+
+      return value.toString().trim();
     }
 
-    // ================= NO BOOK =================
-    if (info == null ||
-        info!['title'] == null ||
-        info!['title'].toString().trim().isEmpty) {
+    String firstNonEmpty(List<dynamic> values) {
+      for (final value in values) {
+        final text = cleanText(value);
+
+        if (text.isNotEmpty &&
+            text.toLowerCase() != 'null') {
+          return text;
+        }
+      }
+
+      return '';
+    }
+
+    String listText(dynamic value, {int limit = 10}) {
+      if (value is! List) return '';
+
+      final result = <String>[];
+
+      for (final item in value) {
+        final text = cleanText(item);
+
+        if (text.isNotEmpty &&
+            !result.contains(text)) {
+          result.add(text);
+        }
+
+        if (result.length >= limit) break;
+      }
+
+      return result.join(', ');
+    }
+
+    // =========================================================
+    // TITLE
+    // =========================================================
+
+    final bookTitle = firstNonEmpty([
+      google['title'],
+      open['title'],
+      edition['title'],
+    ]);
+
+    if (bookTitle.isEmpty) {
       throw Exception('Book not found');
     }
 
-    // ================= FILL DETAILS =================
+    // =========================================================
+    // AUTHOR
+    // =========================================================
+
+    String authorText = '';
+
+    if (google['authors'] is List) {
+      authorText = listText(
+        google['authors'],
+        limit: 5,
+      );
+    }
+
+    if (authorText.isEmpty &&
+        open['author_name'] is List) {
+      authorText = listText(
+        open['author_name'],
+        limit: 5,
+      );
+    }
+
+    // =========================================================
+    // PUBLISHER
+    // =========================================================
+
+    String publisherText = firstNonEmpty([
+      google['publisher'],
+    ]);
+
+    if (publisherText.isEmpty &&
+        open['publisher'] is List) {
+      publisherText = listText(
+        open['publisher'],
+        limit: 3,
+      );
+    }
+
+    if (publisherText.isEmpty &&
+        edition['publishers'] is List) {
+      publisherText = listText(
+        edition['publishers'],
+        limit: 3,
+      );
+    }
+
+    // =========================================================
+    // GENRE / CATEGORIES
+    // =========================================================
+
+    String genreText = '';
+
+    if (google['categories'] is List) {
+      genreText = listText(
+        google['categories'],
+        limit: 10,
+      );
+    }
+
+    if (genreText.isEmpty &&
+        open['subject'] is List) {
+      genreText = listText(
+        open['subject'],
+        limit: 10,
+      );
+    }
+
+    if (genreText.isEmpty &&
+        edition['subjects'] is List) {
+      genreText = listText(
+        edition['subjects'],
+        limit: 10,
+      );
+    }
+
+    // =========================================================
+    // LANGUAGE
+    // =========================================================
+
+    String languageText = '';
+
+    if (google['language'] != null) {
+      languageText = cleanText(
+        google['language'],
+      );
+    }
+
+    if (languageText.isEmpty &&
+        open['language'] is List) {
+      languageText = listText(
+        open['language'],
+        limit: 1,
+      );
+    }
+
+    // =========================================================
+    // PUBLICATION DATE
+    // =========================================================
+
+    final publicationText = firstNonEmpty([
+      google['publishedDate'],
+      open['publish_date'],
+      open['first_publish_year'],
+      edition['publish_date'],
+    ]);
+
+    // =========================================================
+    // PAGES
+    // =========================================================
+
+    final pagesText = firstNonEmpty([
+      google['pageCount'],
+      open['number_of_pages_median'],
+      edition['number_of_pages'],
+    ]);
+
+    // =========================================================
+    // DESCRIPTION
+    // =========================================================
+
+    String descriptionText = '';
+
+    final googleDescription =
+        google['description'];
+
+    if (googleDescription is String) {
+      descriptionText =
+          googleDescription.trim();
+    } else if (googleDescription is Map) {
+      descriptionText =
+          cleanText(googleDescription);
+    }
+
+    // =========================================================
+    // KEYWORDS
+    // =========================================================
+
+    String keywordsText = '';
+
+    if (google['categories'] is List) {
+      keywordsText = listText(
+        google['categories'],
+        limit: 10,
+      );
+    }
+
+    if (keywordsText.isEmpty &&
+        open['subject'] is List) {
+      keywordsText = listText(
+        open['subject'],
+        limit: 10,
+      );
+    }
+
+    // =========================================================
+    // COVER IMAGE
+    // =========================================================
+
+    String coverText = '';
+
+    if (google['imageLinks'] is Map) {
+      final images = google['imageLinks'];
+
+      coverText = firstNonEmpty([
+        images['thumbnail'],
+        images['smallThumbnail'],
+        images['small'],
+        images['medium'],
+        images['large'],
+      ]);
+    }
+
+    if (coverText.isEmpty &&
+        open['cover_i'] != null) {
+      coverText =
+          'https://covers.openlibrary.org/b/id/'
+          '${open['cover_i']}-L.jpg';
+    }
+
+    if (coverText.isEmpty &&
+        edition['covers'] is List &&
+        (edition['covers'] as List).isNotEmpty) {
+      final coverId =
+          (edition['covers'] as List).first;
+
+      coverText =
+          'https://covers.openlibrary.org/b/id/'
+          '$coverId-L.jpg';
+    }
+
+    // =========================================================
+    // FILL ALL FIELDS
+    // =========================================================
+
     setState(() {
       isbn.text = code;
 
-      title.text =
-          info!['title']?.toString() ?? '';
+      title.text = bookTitle;
 
-      final authors = info!['authors'];
+      author.text = authorText;
 
-      if (authors is List) {
-        author.text = authors.join(', ');
-      } else {
-        author.text =
-            authors?.toString() ?? '';
-      }
+      publisher.text = publisherText;
 
-      publisher.text =
-    info['publisher']?.toString().trim().isNotEmpty == true
-        ? info['publisher'].toString()
-        : (info['publishers']?.toString() ?? '');
+      genre.text = genreText;
 
-      publicationDate.text =
-          info!['publishedDate']?.toString() ??
-          '';
+      language.text = languageText;
 
-      language.text =
-          info!['language']?.toString() ?? '';
+      publicationDate.text = publicationText;
 
-      final pageValue =
-    info['pageCount']?.toString() ??
-    info['number_of_pages']?.toString() ??
-    '';
+      pages.text = pagesText;
 
-if (pageValue.trim().isNotEmpty) {
-  pages.text = pageValue;
-}
+      keywords.text = keywordsText;
 
-      description.text =
-          info!['description']?.toString() ?? '';
+      description.text = descriptionText;
 
-      String categoryText = '';
-
-final categories = info['categories'];
-final subjects = info['subjects'];
-
-if (categories is List && categories.isNotEmpty) {
-  categoryText = categories.join(', ');
-} else if (categories is String &&
-    categories.trim().isNotEmpty) {
-  categoryText = categories;
-} else if (subjects is List && subjects.isNotEmpty) {
-  categoryText = subjects.join(', ');
-} else if (subjects is String &&
-    subjects.trim().isNotEmpty) {
-  categoryText = subjects;
-}
-
-if (categoryText.isNotEmpty) {
-  genre.text = categoryText;
-  keywords.text = categoryText;
-}
-
-      final cover =
-          info!['coverUrl']?.toString() ?? '';
-
-      if (cover.isNotEmpty) {
-        coverUrl.text = cover;
-      }
+      coverUrl.text = coverText;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -757,7 +857,7 @@ if (categoryText.isNotEmpty) {
         ),
       ),
     );
-  } catch (e) {
+  } catch (_) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
